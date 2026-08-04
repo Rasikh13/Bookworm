@@ -1,9 +1,0 @@
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\controller\NotificationController.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\dto\ApiResponse.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\dto\EmailNotificationRequest.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\dto\EmailNotificationResponse.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\exception\GlobalExceptionHandler.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\exception\NotificationDeliveryException.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\NotificationServiceApplication.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\service\EmailNotificationService.java
-C:\Users\Rasikh Shaikh\Downloads\bookworm-Working_V.2.3.0\bookworm-Working\bookworm-notification-service\src\main\java\com\bookworm\notification\service\impl\EmailNotificationServiceImpl.java
