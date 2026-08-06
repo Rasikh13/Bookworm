@@ -23,6 +23,7 @@ export interface RoyaltyLedgerResponse {
   royaltyAmount: number;
   status?: "UNPAID" | "PAID" | "REVERSED";
   createdAt: string;
+  paidAt?: string;
 }
 
 export interface RoyaltySummaryResponse {

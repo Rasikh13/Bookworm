@@ -1,16 +1,29 @@
 import React, { useState } from "react";
-import { Search, Edit, UploadCloud, FileSpreadsheet } from "lucide-react";
+import { Search, Edit, UploadCloud, FileSpreadsheet, Plus, X } from "lucide-react";
 import { useFetch } from "../../hooks/useFetch";
-import { browseProducts, updateProduct, getAllSubcategories, getAllGenres, getAllLanguages } from "../../services/product.service";
-import { uploadCoverImage, uploadContentFile } from "../../services/upload.service";
+import { browseProducts, updateProduct, getAllLanguages } from "../../services/product.service";
 import { bulkImportProducts } from "../../services/bulkImport.service";
+import { getAllBeneficiaries } from "../../services/beneficiary.service";
+import {
+  getProductBeneficiaries,
+  replaceProductBeneficiaries,
+  getProductTranslations,
+  upsertProductTranslation,
+  removeProductTranslation,
+} from "../../services/productDetail.service";
 import { Table, Column } from "../../components/ui/Table";
 import { Pagination } from "../../components/ui/Pagination";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { FileUpload } from "../../components/ui/FileUpload";
-import { Product, ProductRequest } from "../../types/product";
+import { ProductForm } from "../../components/domain/products/ProductForm";
+import {
+  Product,
+  ProductRequest,
+  ProductBeneficiaryResponse,
+  ProductTranslationResponse,
+} from "../../types/product";
 import { resolveFileUrl, FALLBACK_BOOK_IMAGE } from "../../api/client";
 import toast from "react-hot-toast";
 
@@ -18,82 +31,164 @@ export const ManageProductsPage: React.FC = () => {
   const [page, setPage] = useState(0);
   const [keyword, setKeyword] = useState("");
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [formState, setFormState] = useState<Partial<ProductRequest>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isBulkImportOpen, setIsBulkImportOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Royalty-split sub-resource for the product currently being edited -
+  // its own join-table endpoint, loaded/refreshed independently of the main
+  // product form (see productDetail.service.ts). Credits/Stakeholders
+  // management is intentionally not exposed here (out of scope for now).
+  const [productBeneficiaries, setProductBeneficiaries] = useState<ProductBeneficiaryResponse[]>([]);
+  const [newBeneficiaryId, setNewBeneficiaryId] = useState<number | "">("");
+  const [newBeneficiaryPct, setNewBeneficiaryPct] = useState<number | "">("");
+  const [isSavingBeneficiaries, setIsSavingBeneficiaries] = useState(false);
+
+  // Bilingual display overlays for the product currently being edited.
+  const [translations, setTranslations] = useState<ProductTranslationResponse[]>([]);
+  const [newTranslationLanguageId, setNewTranslationLanguageId] = useState<number | "">("");
+  const [newTranslationTitle, setNewTranslationTitle] = useState("");
+  const [newTranslationShortDesc, setNewTranslationShortDesc] = useState("");
+  const [newTranslationDesc, setNewTranslationDesc] = useState("");
+  const [isSavingTranslation, setIsSavingTranslation] = useState(false);
 
   const { data: pageData, isLoading, refetch } = useFetch(
     () => browseProducts({ page, size: 10, keyword: keyword || undefined }),
     [page, keyword]
   );
 
-  const { data: subcategories } = useFetch(getAllSubcategories, []);
-  const { data: genres } = useFetch(getAllGenres, []);
   const { data: languages } = useFetch(getAllLanguages, []);
+  const { data: allBeneficiaries } = useFetch(() => getAllBeneficiaries(true), []);
 
-  const handleStartEdit = (product: Product) => {
-    setEditingProduct(product);
-    setFormState({
-      subcategoryId: product.subcategoryId,
-      genreId: product.genreId,
-      languageId: product.languageId,
-      title: product.title,
-      shortDescription: product.shortDescription,
-      description: product.description,
-      price: product.price,
-      pages: product.pages,
-      duration: product.duration,
-      coverImage: product.coverImage,
-      filePath: product.filePath,
-      fileType: product.fileType || "PDF",
-      isRentable: product.isRentable,
-      isLibraryEligible: product.isLibraryEligible,
-      rentRate: product.rentRate,
-      minRentDays: product.minRentDays,
-      isAvailable: product.isAvailable,
-    });
+  const loadProductSubResources = async (productId: number) => {
+    // Each of these is an independent endpoint - one failing (e.g. the
+    // Translations endpoint returning 404 on a backend that hasn't picked up
+    // the ProductTranslation feature yet) must not prevent the other from
+    // loading. Promise.all fails fast on the FIRST rejection and never
+    // resolves the rest, which is what previously turned one bad endpoint
+    // into "Failed to load product attribution/royalty details" for
+    // everything, even though Beneficiaries was fine.
+    const [benResult, trResult] = await Promise.allSettled([
+      getProductBeneficiaries(productId),
+      getProductTranslations(productId),
+    ]);
+
+    if (benResult.status === "fulfilled") setProductBeneficiaries(benResult.value);
+    if (trResult.status === "fulfilled") setTranslations(trResult.value);
+
+    const failedLabels: string[] = [];
+    if (benResult.status === "rejected") failedLabels.push("Royalty Beneficiaries");
+    if (trResult.status === "rejected") failedLabels.push("Translations");
+    if (failedLabels.length > 0) {
+      toast.error(`Failed to load: ${failedLabels.join(", ")}. Other sections loaded normally.`);
+    }
   };
 
-  const handleSaveProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveTranslation = async () => {
+    if (!editingProduct || !newTranslationLanguageId || !newTranslationTitle.trim()) return;
+    setIsSavingTranslation(true);
+    try {
+      await upsertProductTranslation(editingProduct.productId, {
+        languageId: Number(newTranslationLanguageId),
+        title: newTranslationTitle.trim(),
+        shortDescription: newTranslationShortDesc.trim() || undefined,
+        description: newTranslationDesc.trim() || undefined,
+      });
+      toast.success("Translation saved");
+      setNewTranslationLanguageId("");
+      setNewTranslationTitle("");
+      setNewTranslationShortDesc("");
+      setNewTranslationDesc("");
+      const tr = await getProductTranslations(editingProduct.productId);
+      setTranslations(tr);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save translation");
+    } finally {
+      setIsSavingTranslation(false);
+    }
+  };
+
+  const handleRemoveTranslation = async (languageId: number) => {
+    if (!editingProduct) return;
+    try {
+      await removeProductTranslation(editingProduct.productId, languageId);
+      setTranslations((prev) => prev.filter((t) => t.languageId !== languageId));
+    } catch (err: any) {
+      toast.error(err.message || "Failed to remove translation");
+    }
+  };
+
+  const handleStartEdit = (product: Product) => {
+    // ProductForm derives its own field state from `initialValues` (the
+    // product itself) - no separate formState mirror needed here anymore.
+    setEditingProduct(product);
+    loadProductSubResources(product.productId);
+  };
+
+  const handleAddBeneficiaryLine = async () => {
+    if (!editingProduct || !newBeneficiaryId) return;
+    setIsSavingBeneficiaries(true);
+    try {
+      const nextLines = [
+        ...productBeneficiaries.map((b) => ({ beneficiaryId: b.beneficiaryId, royaltyPercentage: b.royaltyPercentage })),
+        { beneficiaryId: Number(newBeneficiaryId), royaltyPercentage: newBeneficiaryPct ? Number(newBeneficiaryPct) : undefined },
+      ];
+      const updated = await replaceProductBeneficiaries(editingProduct.productId, nextLines);
+      setProductBeneficiaries(updated);
+      setNewBeneficiaryId("");
+      setNewBeneficiaryPct("");
+      toast.success("Royalty split added");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add royalty split (check total does not exceed 100%)");
+    } finally {
+      setIsSavingBeneficiaries(false);
+    }
+  };
+
+  const handleRemoveBeneficiaryLine = async (beneficiaryId: number) => {
+    if (!editingProduct) return;
+    setIsSavingBeneficiaries(true);
+    try {
+      const nextLines = productBeneficiaries
+        .filter((b) => b.beneficiaryId !== beneficiaryId)
+        .map((b) => ({ beneficiaryId: b.beneficiaryId, royaltyPercentage: b.royaltyPercentage }));
+      const updated = await replaceProductBeneficiaries(editingProduct.productId, nextLines);
+      setProductBeneficiaries(updated);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to remove royalty split");
+    } finally {
+      setIsSavingBeneficiaries(false);
+    }
+  };
+
+  const handleSaveProduct = async (payload: ProductRequest, englishTitle: string | null) => {
     if (!editingProduct) return;
     setIsSaving(true);
     try {
-      await updateProduct(editingProduct.productId, formState as ProductRequest);
+      await updateProduct(editingProduct.productId, payload);
+
+      // Same English Title capture Add Product uses (requirement #16),
+      // reusing the Translations manager's own upsert - keeps this a single
+      // code path instead of a second, form-embedded translation write.
+      const englishLanguageId = languages?.find((l) => l.languageName?.toLowerCase() === "english")?.languageId;
+      if (englishTitle && englishLanguageId) {
+        try {
+          await upsertProductTranslation(editingProduct.productId, {
+            languageId: englishLanguageId,
+            title: englishTitle,
+          });
+        } catch (err: any) {
+          toast.error("Product saved, but the English Title could not be saved: " + (err.message || "unknown error"));
+        }
+      }
+
       toast.success("Product updated successfully!");
-      setEditingProduct(null);
+      loadProductSubResources(editingProduct.productId);
       refetch();
     } catch (err: any) {
       toast.error(err.message || "Failed to update product");
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleCoverUpload = async (file: File) => {
-    setIsUploading(true);
-    try {
-      const url = await uploadCoverImage(file);
-      setFormState((prev) => ({ ...prev, coverImage: url }));
-      toast.success("Cover image uploaded!");
-    } catch (err: any) {
-      toast.error("Failed to upload cover image");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleContentUpload = async (file: File) => {
-    setIsUploading(true);
-    try {
-      const url = await uploadContentFile(file);
-      setFormState((prev) => ({ ...prev, filePath: url }));
-      toast.success("Content PDF uploaded!");
-    } catch (err: any) {
-      toast.error("Failed to upload content PDF");
-    } finally {
-      setIsUploading(false);
     }
   };
 
@@ -208,56 +303,169 @@ export const ManageProductsPage: React.FC = () => {
         maxWidth="xl"
       >
         {editingProduct && (
-          <form onSubmit={handleSaveProduct} className="space-y-4 max-h-[75vh] overflow-y-auto pr-2">
-            <Input
-              label="Book Title"
-              value={formState.title || ""}
-              onChange={(e) => setFormState({ ...formState, title: e.target.value })}
-              required
+          <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-2">
+            {/* BASE PRODUCT FIELDS - the exact same ProductForm component Add
+                New Product uses (same validation, same DTO mapping, same UI),
+                pre-populated from the product being edited. Replaces the old
+                independently-maintained edit form that had drifted out of
+                sync with Add Product (missing description, full media-type
+                support, etc.) - see requirement #17. */}
+            <ProductForm
+              mode="edit"
+              initialValues={{
+                ...editingProduct,
+                englishTitle: translations.find((t) => t.languageName?.toLowerCase() === "english")?.title || "",
+              }}
+              onSubmit={handleSaveProduct}
+              isSaving={isSaving}
             />
 
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Price (₹)"
-                type="number"
-                value={formState.price || 0}
-                onChange={(e) => setFormState({ ...formState, price: Number(e.target.value) })}
-                required
-              />
-              <Input
-                label="Pages"
-                type="number"
-                value={formState.pages || 0}
-                onChange={(e) => setFormState({ ...formState, pages: Number(e.target.value) })}
-              />
+            {/* PRODUCT BENEFICIARIES / ROYALTY SPLIT */}
+            <div className="border-t border-slate-800 pt-4 space-y-3">
+              <h3 className="text-sm font-bold text-white">Royalty Beneficiaries</h3>
+              <div className="space-y-2">
+                {productBeneficiaries.length === 0 && (
+                  <p className="text-xs text-slate-500">No royalty splits configured for this product.</p>
+                )}
+                {productBeneficiaries.map((b) => (
+                  <div
+                    key={b.productBeneficiaryId}
+                    className="flex items-center justify-between bg-slate-800/60 rounded-lg px-3 py-2 text-xs"
+                  >
+                    <span className="text-slate-200">
+                      <span className="font-semibold text-white">{b.beneficiaryName}</span> — {b.royaltyPercentage}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveBeneficiaryLine(b.beneficiaryId)}
+                      className="text-slate-400 hover:text-rose-400"
+                      disabled={isSavingBeneficiaries}
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <select
+                  value={newBeneficiaryId}
+                  onChange={(e) => setNewBeneficiaryId(e.target.value ? Number(e.target.value) : "")}
+                  className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                >
+                  <option value="">Select beneficiary...</option>
+                  {allBeneficiaries?.map((b) => (
+                    <option key={b.beneficiaryId} value={b.beneficiaryId}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="number"
+                  value={newBeneficiaryPct}
+                  onChange={(e) => setNewBeneficiaryPct(e.target.value ? Number(e.target.value) : "")}
+                  placeholder="% (optional)"
+                  className="w-28 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddBeneficiaryLine}
+                  isLoading={isSavingBeneficiaries}
+                  leftIcon={<Plus size={14} />}
+                >
+                  Add
+                </Button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Total allocation across all beneficiaries cannot exceed 100%. Changing a split never alters
+                already-earned royalty history (historical ledger entries are frozen at the time they were earned).
+              </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <FileUpload
-                label="Upload Cover Image"
-                accept="image/*"
-                uploadedUrl={formState.coverImage}
-                onFileSelect={handleCoverUpload}
-                isUploading={isUploading}
-              />
-              <FileUpload
-                label="Upload PDF Content File"
-                accept="application/pdf"
-                uploadedUrl={formState.filePath}
-                onFileSelect={handleContentUpload}
-                isUploading={isUploading}
-              />
+            {/* BILINGUAL DISPLAY TRANSLATIONS */}
+            <div className="border-t border-slate-800 pt-4 space-y-3">
+              <h3 className="text-sm font-bold text-white">Translations (Bilingual Display)</h3>
+              <div className="space-y-2">
+                {translations.length === 0 && (
+                  <p className="text-xs text-slate-500">No translations added yet - the product displays in its base language only.</p>
+                )}
+                {translations.map((t) => (
+                  <div
+                    key={t.productTranslationId}
+                    className="flex items-center justify-between bg-slate-800/60 rounded-lg px-3 py-2 text-xs"
+                  >
+                    <span className="text-slate-200">
+                      <span className="font-semibold text-white">{t.languageName}</span>: {t.title}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTranslation(t.languageId)}
+                      className="text-slate-400 hover:text-rose-400"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <select
+                    value={newTranslationLanguageId}
+                    onChange={(e) => setNewTranslationLanguageId(e.target.value ? Number(e.target.value) : "")}
+                    className="w-40 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                  >
+                    <option value="">Language...</option>
+                    {languages?.map((lang) => (
+                      <option key={lang.languageId} value={lang.languageId}>
+                        {lang.languageName}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    value={newTranslationTitle}
+                    onChange={(e) => setNewTranslationTitle(e.target.value)}
+                    placeholder="Translated title"
+                    className="flex-1 px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                  />
+                </div>
+                <input
+                  value={newTranslationShortDesc}
+                  onChange={(e) => setNewTranslationShortDesc(e.target.value)}
+                  placeholder="Translated short description (optional)"
+                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                />
+                <textarea
+                  value={newTranslationDesc}
+                  onChange={(e) => setNewTranslationDesc(e.target.value)}
+                  placeholder="Translated full description (optional)"
+                  rows={2}
+                  className="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSaveTranslation}
+                  isLoading={isSavingTranslation}
+                  leftIcon={<Plus size={14} />}
+                >
+                  Save Translation
+                </Button>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Adding a translation for a language a user selects as their display preference will show this
+                title/description instead of the base text - the base product record (pricing, availability,
+                royalties) is unaffected.
+              </p>
             </div>
 
-            <div className="pt-4 flex justify-end gap-3">
+            <div className="pt-4 flex justify-end">
               <Button variant="outline" type="button" onClick={() => setEditingProduct(null)}>
-                Cancel
-              </Button>
-              <Button variant="gold" type="submit" isLoading={isSaving}>
-                Save Product Changes
+                Close
               </Button>
             </div>
-          </form>
+          </div>
         )}
       </Modal>
 

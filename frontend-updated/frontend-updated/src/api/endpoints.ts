@@ -13,6 +13,18 @@ export const API_ENDPOINTS = {
     GENRES: "/genres",
     LANGUAGES: "/languages",
     SUBCATEGORIES: "/subcategories",
+    CREDITS: (productId: number) => `/products/${productId}/credits`,
+    CREDIT_BY_ID: (productId: number, productCreditId: number) => `/products/${productId}/credits/${productCreditId}`,
+    STAKEHOLDERS: (productId: number) => `/products/${productId}/stakeholders`,
+    STAKEHOLDER_BY_ID: (productId: number, productStakeholderId: number) =>
+      `/products/${productId}/stakeholders/${productStakeholderId}`,
+    BENEFICIARIES: (productId: number) => `/products/${productId}/beneficiaries`,
+  },
+  STAKEHOLDERS: {
+    BASE: "/stakeholders",
+  },
+  CREDIT_TYPES: {
+    BASE: "/credit-types",
   },
   CART: {
     BASE: (userId: number) => `/users/${userId}/cart`,

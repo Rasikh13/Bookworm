@@ -4,7 +4,9 @@ import { CreditCard, QrCode, Lock, CheckCircle2 } from "lucide-react";
 import { useAuth } from "../../hooks/useAuth";
 import { useCart } from "../../hooks/useCart";
 import { purchaseCheckoutAPI, rentCheckoutAPI } from "../../services/checkout.service";
-import { clearCartAPI } from "../../services/cart.service";
+import { getCartAPI } from "../../services/cart.service";
+import { resolveFileUrl } from "../../api/client";
+import { UICartItem } from "../../types/cart";
 import { Input } from "../../components/ui/Input";
 import { Button } from "../../components/ui/Button";
 import toast from "react-hot-toast";
@@ -12,7 +14,7 @@ import toast from "react-hot-toast";
 export const PaymentPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { items, lastPurchaseType, purchaseTotal, rentalTotal, clear } = useCart();
+  const { items, lastPurchaseType, purchaseTotal, rentalTotal, updateItems } = useCart();
   const [paymentMethod, setPaymentMethod] = useState<"upi" | "card">("upi");
   const [upiId, setUpiIdState] = useState("");
   const [cardNumber, setCardNumber] = useState("");
@@ -32,6 +34,13 @@ export const PaymentPage: React.FC = () => {
       const hasPurchase = items.some((item) => item.intent !== "RENT");
       const hasRent = items.some((item) => item.intent === "RENT");
 
+      // Each checkout call only removes its own intent's cart items on the
+      // backend (PurchaseServiceImpl/RentServiceImpl each delete just the
+      // CartItems they checked out - see their checkout() methods). Paying
+      // for only the purchase items must leave any rental items sitting in
+      // the cart for a later rent checkout, and vice versa - so this must
+      // NOT follow up with a full clearCartAPI() call, which used to wipe
+      // out whichever intent wasn't just paid for.
       if (lastPurchaseType === "buy" && hasPurchase) {
         await purchaseCheckoutAPI(user.userId);
       } else if (lastPurchaseType === "rent" && hasRent) {
@@ -41,8 +50,23 @@ export const PaymentPage: React.FC = () => {
         if (hasRent) await rentCheckoutAPI(user.userId);
       }
 
-      await clearCartAPI(user.userId);
-      clear();
+      // Refresh from the server rather than blindly clearing local state -
+      // reflects exactly what's left in the cart (nothing, if every intent
+      // present was just checked out; the other intent's items, otherwise).
+      const res = await getCartAPI(user.userId);
+      const remaining: UICartItem[] = (res.data?.items || []).map((item) => ({
+        cartItemId: item.cartItemId,
+        id: item.productId,
+        name: item.productTitle,
+        image: resolveFileUrl(item.coverImage),
+        price: Number(item.lineTotal || 0),
+        intent: item.intent,
+        rentDays: item.rentDays,
+        rentable: false,
+        rentPerDay: 0,
+        minRentDays: 1,
+      }));
+      updateItems(remaining);
 
       toast.success("Payment completed successfully!");
       navigate("/success");
