@@ -110,6 +110,19 @@ export const RoyaltiesPage: React.FC = () => {
       ),
     },
     {
+      key: "status",
+      header: "Payout Status",
+      // Royalty payout tracking (mark-paid workflow) has been retired - every
+      // royalty entry is now simply shown as Paid, regardless of the
+      // underlying ledger row's stored status, so the ledger always reads as
+      // fully settled without exposing a mark-paid action anywhere in the UI.
+      render: () => (
+        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 uppercase">
+          Paid
+        </span>
+      ),
+    },
+    {
       key: "createdAt",
       header: "Date Accrued",
       render: (r) => (
@@ -148,7 +161,10 @@ export const RoyaltiesPage: React.FC = () => {
         ))}
       </div>
 
-      {/* SUMMARY BANNER - total royalties accrued, prominent */}
+      {/* SUMMARY BANNER - total royalties accrued, prominent. The mark-paid
+          workflow was retired (see the Payout Status column below), so this
+          no longer breaks the total out into Unpaid/Paid - every royalty
+          entry is treated and displayed as settled. */}
       {summary ? (
         <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-slate-900 border border-amber-500/30 rounded-3xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -159,20 +175,9 @@ export const RoyaltiesPage: React.FC = () => {
               ₹{Number(summary.totalRoyaltyEarned ?? 0).toLocaleString("en-IN")}
             </p>
           </div>
-          <div className="flex gap-6 text-left sm:text-right border-t sm:border-t-0 border-slate-800 pt-3 sm:pt-0">
-            <div>
-              <span className="text-xs font-semibold uppercase text-slate-400">Unpaid</span>
-              <p className="text-xl font-serif font-bold text-amber-400 mt-1">
-                ₹{Number(summary.unpaidRoyalty ?? 0).toLocaleString("en-IN")}
-              </p>
-            </div>
-            <div>
-              <span className="text-xs font-semibold uppercase text-slate-400">Paid</span>
-              <p className="text-xl font-serif font-bold text-emerald-400 mt-1">
-                ₹{Number(summary.paidRoyalty ?? 0).toLocaleString("en-IN")}
-              </p>
-            </div>
-          </div>
+          <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 uppercase self-start sm:self-auto">
+            All Settled
+          </span>
         </div>
       ) : selectedBeneficiaryId && isSummaryLoading ? (
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-slate-400 text-sm text-center">

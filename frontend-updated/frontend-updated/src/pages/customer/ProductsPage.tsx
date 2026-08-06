@@ -7,14 +7,23 @@ import { getActiveSubscription, borrowProduct } from "../../services/library.ser
 import { useAuth } from "../../hooks/useAuth";
 import { ProductCard } from "../../components/domain/products/ProductCard";
 import { ProductDetailModal } from "../../components/domain/products/ProductDetailModal";
-import { Product } from "../../types/product";
+import { Product, MediaType } from "../../types/product";
 import { Input } from "../../components/ui/Input";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { Pagination } from "../../components/ui/Pagination";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useDispatch } from "react-redux";
 import { setCartModalMessage } from "../../store/slices/uiSlice";
+import { useOwnershipMap } from "../../hooks/useOwnershipMap";
+import { findEnglishLanguageId } from "../../utils/language";
 import toast from "react-hot-toast";
+
+const MEDIA_TYPE_OPTIONS: { value: MediaType; label: string }[] = [
+  { value: "BOOK", label: "Books" },
+  { value: "AUDIOBOOK", label: "Audiobooks" },
+  { value: "VIDEO_COURSE", label: "Video Courses" },
+  { value: "PODCAST", label: "Podcasts" },
+];
 
 export const ProductsPage: React.FC = () => {
   const dispatch = useDispatch();
@@ -22,17 +31,28 @@ export const ProductsPage: React.FC = () => {
   const [selectedGenreId, setSelectedGenreId] = useState<number | undefined>(undefined);
   const [selectedLanguageId, setSelectedLanguageId] = useState<number | undefined>(undefined);
   const [isRentableOnly, setIsRentableOnly] = useState<boolean | undefined>(undefined);
+  const [selectedMediaType, setSelectedMediaType] = useState<MediaType | undefined>(undefined);
   const [searchText, setSearchText] = useState<string>("");
   const [page, setPage] = useState<number>(0);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const { data: genres } = useFetch(getAllGenres, []);
   const { data: languages } = useFetch(getAllLanguages, []);
-  
+  // The language dropdown was removed from the Navbar (bilingual display is no
+  // longer a user-chosen preference) - but English titles should still show
+  // wherever an English ProductTranslation exists, so every browse request
+  // now always asks for the English overlay rather than a user-selected one.
+  const englishLanguageId = findEnglishLanguageId(languages);
+
   const { data: activeSub } = useFetch(
     () => (user?.userId ? getActiveSubscription(user.userId) : Promise.resolve(null)),
     [user?.userId]
   );
+
+  // Mirrors AcquisitionEligibilityServiceImpl's ownership rules client-side so
+  // Buy/Rent/Borrow can be disabled with an explanation instead of only
+  // failing after the backend rejects the request - see useOwnershipMap.
+  const { getAvailability, refetch: refetchOwnership } = useOwnershipMap();
 
   const { data: pageData, isLoading, refetch } = useFetch(
     () =>
@@ -40,11 +60,13 @@ export const ProductsPage: React.FC = () => {
         genreId: selectedGenreId,
         languageId: selectedLanguageId,
         isRentable: isRentableOnly,
+        mediaType: selectedMediaType,
         keyword: searchText.trim() || undefined,
+        displayLanguageId: englishLanguageId,
         page,
         size: 12,
       }),
-    [selectedGenreId, selectedLanguageId, isRentableOnly, searchText, page]
+    [selectedGenreId, selectedLanguageId, isRentableOnly, selectedMediaType, searchText, page, englishLanguageId]
   );
 
   const handleSearchSubmit = (e: React.FormEvent) => {
@@ -67,6 +89,9 @@ export const ProductsPage: React.FC = () => {
       if (msg.toLowerCase().includes("already present")) {
         dispatch(setCartModalMessage("Book is already present in your cart"));
       } else {
+        // Covers the case where the ownership map is briefly stale (e.g. a
+        // purchase completed in another tab) and the backend's authoritative
+        // AcquisitionEligibilityServiceImpl check is what actually caught it.
         toast.error(msg);
       }
     }
@@ -101,6 +126,9 @@ export const ProductsPage: React.FC = () => {
     try {
       await borrowProduct(user.userId, product.productId, 14);
       toast.success(`Successfully borrowed "${product.title}"! Added to My Subscriptions & Shelf.`);
+      // Borrowing (unlike add-to-cart) takes effect immediately, so the
+      // ownership map used to disable Buy/Rent/Borrow needs a fresh read.
+      refetchOwnership();
     } catch (err: any) {
       const msg = err.message || "Failed to borrow book";
       toast.error(msg);
@@ -111,6 +139,7 @@ export const ProductsPage: React.FC = () => {
     setSelectedGenreId(undefined);
     setSelectedLanguageId(undefined);
     setIsRentableOnly(undefined);
+    setSelectedMediaType(undefined);
     setSearchText("");
     setPage(0);
   };
@@ -182,6 +211,36 @@ export const ProductsPage: React.FC = () => {
                 </span>
                 {isRentableOnly && <span className="text-[10px] font-bold uppercase">Active</span>}
               </button>
+            </div>
+
+            {/* MEDIA TYPE */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">Media Type</h4>
+              <div className="space-y-1">
+                <button
+                  onClick={() => { setSelectedMediaType(undefined); setPage(0); }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                    selectedMediaType === undefined
+                      ? "bg-amber-500 text-slate-950"
+                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  All Types
+                </button>
+                {MEDIA_TYPE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setSelectedMediaType(opt.value); setPage(0); }}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                      selectedMediaType === opt.value
+                        ? "bg-amber-500 text-slate-950"
+                        : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* GENRES */}
@@ -278,6 +337,7 @@ export const ProductsPage: React.FC = () => {
                       onBorrow={handleBorrow}
                       onSelect={(p) => setSelectedProduct(p)}
                       hasActiveSubscription={!!activeSub}
+                      availability={getAvailability(product.productId)}
                     />
                   ))}
                 </div>
@@ -301,6 +361,7 @@ export const ProductsPage: React.FC = () => {
         onRentToCart={handleRentToCart}
         onBorrow={handleBorrow}
         hasActiveSubscription={!!activeSub}
+        availability={selectedProduct ? getAvailability(selectedProduct.productId) : undefined}
       />
     </div>
   );

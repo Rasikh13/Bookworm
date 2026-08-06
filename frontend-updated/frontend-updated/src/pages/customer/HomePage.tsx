@@ -3,20 +3,24 @@ import { Link, useNavigate } from "react-router-dom";
 import { Star, ArrowRight, ShieldCheck, Zap, Headphones } from "lucide-react";
 import { useFetch } from "../../hooks/useFetch";
 import { useAuth } from "../../hooks/useAuth";
-import { browseProducts } from "../../services/product.service";
+import { browseProducts, getAllLanguages } from "../../services/product.service";
 import { addToCartAPI } from "../../services/cart.service";
 import { ProductCard } from "../../components/domain/products/ProductCard";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { Button } from "../../components/ui/Button";
+import { findEnglishLanguageId } from "../../utils/language";
 import toast from "react-hot-toast";
 
 export const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const { data: languages } = useFetch(getAllLanguages, []);
+  const englishLanguageId = findEnglishLanguageId(languages);
+
   const { data: featuredData, isLoading } = useFetch(
-    () => browseProducts({ page: 0, size: 4 }),
-    []
+    () => browseProducts({ page: 0, size: 4, displayLanguageId: englishLanguageId }),
+    [englishLanguageId]
   );
 
   const handleAddToCart = async (product: any) => {

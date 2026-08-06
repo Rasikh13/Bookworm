@@ -4,7 +4,14 @@ import { resolveFileUrl } from "../../../api/client";
 import { Modal } from "../../ui/Modal";
 import { Button } from "../../ui/Button";
 import { Badge } from "../../ui/Badge";
-import { ShoppingBag, BookOpen, Clock, FileText, Globe, Library } from "lucide-react";
+import { ShoppingBag, BookOpen, Clock, FileText, Globe, Library, Headphones, Video, Mic } from "lucide-react";
+import { ProductAvailability } from "../../../hooks/useOwnershipMap";
+
+const MEDIA_TYPE_META: Record<string, { label: string; icon: React.ReactNode }> = {
+  AUDIOBOOK: { label: "Audiobook", icon: <Headphones size={12} /> },
+  VIDEO_COURSE: { label: "Video Course", icon: <Video size={12} /> },
+  PODCAST: { label: "Podcast", icon: <Mic size={12} /> },
+};
 
 export interface ProductDetailModalProps {
   product: Product | null;
@@ -13,6 +20,7 @@ export interface ProductDetailModalProps {
   onRentToCart?: (product: Product) => void;
   onBorrow?: (product: Product) => void;
   hasActiveSubscription?: boolean;
+  availability?: ProductAvailability;
 }
 
 export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
@@ -22,10 +30,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onRentToCart,
   onBorrow,
   hasActiveSubscription = false,
+  availability,
 }) => {
   if (!product) return null;
 
   const imageUrl = resolveFileUrl(product.coverImage);
+  const canPurchase = availability?.canPurchase !== false;
+  const canRent = availability?.canRent !== false;
+  const canBorrow = availability?.canBorrow !== false;
 
   return (
     <Modal isOpen={!!product} onClose={onClose} maxWidth="xl">
@@ -45,7 +57,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         {/* DETAILS */}
         <div className="md:col-span-3 flex flex-col justify-between space-y-4">
           <div className="space-y-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {product.mediaType && MEDIA_TYPE_META[product.mediaType] && (
+                <Badge variant="info" className="flex items-center gap-1">
+                  {MEDIA_TYPE_META[product.mediaType].icon}
+                  {MEDIA_TYPE_META[product.mediaType].label}
+                </Badge>
+              )}
               {product.genreName && <Badge variant="gold">{product.genreName}</Badge>}
               {product.languageName && <Badge variant="neutral">{product.languageName}</Badge>}
               {product.isRentable && <Badge variant="warning">Rentable</Badge>}
@@ -113,6 +131,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     onClose();
                   }}
                   leftIcon={<Library size={16} />}
+                  disabled={!canBorrow}
+                  title={!canBorrow ? availability?.borrowReason : undefined}
                 >
                   Borrow with Library Pass
                 </Button>
@@ -129,8 +149,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       onClose();
                     }}
                     leftIcon={<ShoppingBag size={16} />}
+                    disabled={!canPurchase}
+                    title={!canPurchase ? availability?.purchaseReason : undefined}
                   >
-                    Buy Product
+                    {availability?.status === "PURCHASED" ? "Already Owned" : "Buy Product"}
                   </Button>
                 )}
 
@@ -144,11 +166,22 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       onClose();
                     }}
                     leftIcon={<Clock size={16} />}
+                    disabled={!canRent}
+                    title={!canRent ? availability?.rentReason : undefined}
                   >
                     Rent Book
                   </Button>
                 )}
               </div>
+              {!canPurchase && availability?.purchaseReason && (
+                <p className="text-xs text-slate-500">{availability.purchaseReason}</p>
+              )}
+              {canPurchase && !canRent && availability?.rentReason && (
+                <p className="text-xs text-slate-500">{availability.rentReason}</p>
+              )}
+              {canRent && !canBorrow && availability?.borrowReason && (
+                <p className="text-xs text-slate-500">{availability.borrowReason}</p>
+              )}
             </div>
           </div>
         </div>

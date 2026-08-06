@@ -55,6 +55,9 @@ const ResetPasswordPage = lazy(() =>
 const VerifyEmailPage = lazy(() =>
   import("../pages/auth/VerifyEmailPage").then((m) => ({ default: m.VerifyEmailPage }))
 );
+const OAuthCallbackPage = lazy(() =>
+  import("../pages/auth/OAuthCallbackPage").then((m) => ({ default: m.OAuthCallbackPage }))
+);
 const NotFoundPage = lazy(() =>
   import("../pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage }))
 );
@@ -212,6 +215,7 @@ export const AppRoutes: React.FC = () => {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/oauth2/callback" element={<OAuthCallbackPage />} />
 
         {/* PROTECTED ADMIN ROUTES */}
         <Route
